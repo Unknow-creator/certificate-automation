@@ -1,0 +1,4 @@
+name: Certificate Automation
+
+on:
+  workflow_dispatch:
