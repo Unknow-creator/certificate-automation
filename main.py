@@ -34,6 +34,7 @@ client = gspread.authorize(creds)
 
 SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
 sheet = client.open_by_key(SPREADSHEET_ID).sheet1
+
 records = sheet.get_all_records()
 headers = sheet.row_values(1)
 
@@ -46,16 +47,34 @@ STATUS_COL = headers.index("Status") + 1
 # ================= LOAD TEMPLATE SIZE =================
 base_pdf = PdfReader(CERT_TEMPLATE)
 page = base_pdf.pages[0]
+
 PAGE_WIDTH = float(page.mediabox.width)
 PAGE_HEIGHT = float(page.mediabox.height)
-CENTER_X = PAGE_WIDTH / 2
 
-# 🔧 PERFECT POSITIONS (tuned for your design)
+# ================= DASHED LINE LOCKED POSITIONS =================
+NAME_X = PAGE_WIDTH * 0.18
+NAME_WIDTH = PAGE_WIDTH * 0.64
 NAME_Y = PAGE_HEIGHT * 0.47
+
+EVENT_X = PAGE_WIDTH * 0.18
+EVENT_WIDTH = PAGE_WIDTH * 0.64
 EVENT_Y = PAGE_HEIGHT * 0.40
 
 # ================= FONT =================
 pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
+
+# ================= TEXT BOX DRAWER (NO FLYING) =================
+def draw_text_in_box(c, text, x, width, y, font, max_size, min_size):
+    size = max_size
+    while size >= min_size:
+        text_width = pdfmetrics.stringWidth(text, font, size)
+        if text_width <= width:
+            break
+        size -= 1
+
+    c.setFont(font, size)
+    x_pos = x + (width - text_width) / 2
+    c.drawString(x_pos, y, text)
 
 # ================= CERTIFICATE CREATOR =================
 def create_certificate(name, event):
@@ -63,25 +82,48 @@ def create_certificate(name, event):
     final_path = f"{OUTPUT_DIR}/{name.replace(' ', '_')}.pdf"
 
     c = canvas.Canvas(overlay_path, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
-    c.setFont("Playfair", 32)
-    c.drawCentredString(CENTER_X, NAME_Y, name)
 
-    c.setFont("Playfair", 22)
-    c.drawCentredString(CENTER_X, EVENT_Y, event)
+    # NAME (LOCKED EXACTLY ON DASH)
+    draw_text_in_box(
+        c,
+        name,
+        NAME_X,
+        NAME_WIDTH,
+        NAME_Y,
+        "Playfair",
+        max_size=32,
+        min_size=22
+    )
+
+    # EVENT (LOCKED EXACTLY ON DASH)
+    draw_text_in_box(
+        c,
+        event,
+        EVENT_X,
+        EVENT_WIDTH,
+        EVENT_Y,
+        "Playfair",
+        max_size=22,
+        min_size=16
+    )
 
     c.save()
 
+    base = PdfReader(CERT_TEMPLATE)
     overlay = PdfReader(overlay_path)
+
     writer = PdfWriter()
+    page = base.pages[0]
     page.merge_page(overlay.pages[0])
     writer.add_page(page)
 
     with open(final_path, "wb") as f:
         writer.write(f)
 
+    os.remove(overlay_path)
     return final_path
 
-# ================= EMAIL =================
+# ================= EMAIL SENDER =================
 def send_email(to_email, name, pdf_path):
     msg = EmailMessage()
     msg["Subject"] = "Certificate of Participation – ITRONIX"
@@ -113,27 +155,28 @@ Guru Nanak College
         server.login(SENDER_EMAIL, APP_PASSWORD)
         server.send_message(msg)
 
-# ================= MAIN LOOP =================
-for i, row in enumerate(records, start=2):
+# ================= MAIN EXECUTION =================
+for row_index, row in enumerate(records, start=2):
     name = row.get("Full Name")
     event = row.get("EVENT")
     email = row.get("Email Address")
-    status = row.get("Status", "")
+    status = row.get("Status", "").strip()
 
     if status.startswith("✅"):
         continue
 
     if not name or not event or not email:
-        sheet.update_cell(i, STATUS_COL, "❌ FAILED (Missing data)")
+        sheet.update_cell(row_index, STATUS_COL, "❌ FAILED (Missing data)")
         continue
 
     try:
-        sheet.update_cell(i, STATUS_COL, "⏳ PENDING")
+        sheet.update_cell(row_index, STATUS_COL, "⏳ PENDING")
         pdf = create_certificate(name, event)
         send_email(email, name, pdf)
-        sheet.update_cell(i, STATUS_COL, "✅ SENT")
+        sheet.update_cell(row_index, STATUS_COL, "✅ SENT")
+        print(f"✔ Sent to {email}")
     except Exception as e:
-        sheet.update_cell(i, STATUS_COL, f"❌ FAILED")
-        print(e)
+        sheet.update_cell(row_index, STATUS_COL, "❌ FAILED")
+        print(f"❌ Error for {email}: {e}")
 
-print("🎉 Done")
+print("🎉 Certificate automation completed successfully")
