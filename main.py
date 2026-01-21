@@ -26,7 +26,6 @@ PAGE_WIDTH = 842
 PAGE_HEIGHT = 595
 CENTER_X = PAGE_WIDTH // 2
 
-# Calibrated for your certificate image
 NAME_Y = 315      # Upper dotted line
 EVENT_Y = 270     # Lower dotted line
 
@@ -44,20 +43,31 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 
 client = gspread.authorize(creds)
 
-# OPEN BY SPREADSHEET NAME + SHEET TAB NAME
 spreadsheet = client.open("CertificateData")
-sheet = spreadsheet.worksheet("Form_Responses")
+sheet = spreadsheet.get_worksheet(0)  # ✅ first tab always
 
 records = sheet.get_all_records()
 
+if not records:
+    print("✅ Sheet has headers only. Nothing to process.")
+    exit(0)
+
+headers = sheet.row_values(1)
+
+# Ensure Status column exists
+if "Status" not in headers:
+    sheet.update_cell(1, len(headers) + 1, "Status")
+    headers.append("Status")
+
+status_col = headers.index("Status") + 1
+
 # ================= CERTIFICATE CREATION =================
+pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
+
 def create_certificate(name, event):
     overlay_pdf = f"{OUTPUT_DIR}/overlay.pdf"
     final_pdf = f"{OUTPUT_DIR}/{name}.pdf"
 
-    pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
-
-    # Create overlay PDF
     c = canvas.Canvas(overlay_pdf, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
 
     # NAME
@@ -70,7 +80,6 @@ def create_certificate(name, event):
 
     c.save()
 
-    # Merge overlay with certificate template
     base_pdf = PdfReader(CERT_TEMPLATE)
     overlay = PdfReader(overlay_pdf)
     writer = PdfWriter()
@@ -88,7 +97,7 @@ def create_certificate(name, event):
 def send_email(to_email, name, pdf_path):
     msg = EmailMessage()
     msg["Subject"] = "Certificate of Participation – ITRONIX"
-    msg["From"] = SENDER_EMAIL
+    msg["From"] = f"ITRONIX Certificates <{SENDER_EMAIL}>"
     msg["To"] = to_email
 
     msg.set_content(f"""
@@ -117,22 +126,28 @@ Guru Nanak College
         server.send_message(msg)
 
 # ================= MAIN EXECUTION =================
-for row_index, row in enumerate(records, start=2):  # start=2 = actual sheet row
+for row_index, row in enumerate(records, start=2):
     name = row.get("Full Name")
     event = row.get("EVENT")
     email = row.get("Email Address")
-    status = row.get("Status", "")
+    status = row.get("Status", "").strip()
+
+    if status.startswith("✅"):
+        continue
 
     if not name or not event or not email:
+        sheet.update_cell(row_index, status_col, "❌ FAILED (Missing data)")
         continue
 
-    if status == "SENT":
-        continue
+    try:
+        sheet.update_cell(row_index, status_col, "⏳ PENDING")
+        pdf_path = create_certificate(name, event)
+        send_email(email, name, pdf_path)
+        sheet.update_cell(row_index, status_col, "✅ SENT")
+        print(f"✔ Certificate sent to {email}")
 
-    pdf_path = create_certificate(name, event)
-    send_email(email, name, pdf_path)
+    except Exception as e:
+        sheet.update_cell(row_index, status_col, "❌ FAILED")
+        print(f"❌ Failed for {email}: {e}")
 
-    # Update Status column (H = 8)
-    sheet.update_cell(row_index, 8, "SENT")
-
-    print(f"✔ Certificate sent to {email}")
+print("🎉 Certificate automation completed successfully")
