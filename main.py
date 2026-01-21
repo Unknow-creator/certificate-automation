@@ -10,16 +10,20 @@ from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfReader, PdfWriter
 
 # ================= CONFIG =================
+# Gmail credentials
 SENDER_EMAIL = os.environ.get("GMAIL_USER")
 APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 
 if not SENDER_EMAIL or not APP_PASSWORD:
     raise EnvironmentError(
-        "Missing Gmail credentials! Set GMAIL_USER and GMAIL_APP_PASSWORD environment variables."
+        "Missing Gmail credentials! Set GMAIL_USER and GMAIL_APP_PASSWORD as environment variables."
     )
 
+# Certificate template & font
 CERT_TEMPLATE = "certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
+
+# Output directory
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -27,7 +31,6 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 PAGE_WIDTH = 842   # A4 Landscape
 PAGE_HEIGHT = 595
 CENTER_X = PAGE_WIDTH // 2
-
 NAME_Y = 315
 EVENT_Y = 270
 
@@ -37,21 +40,28 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+# Use environment variable first (GitHub Actions)
 google_creds_env = os.environ.get("GOOGLE_CREDENTIALS")
 
 if google_creds_env:
     google_creds = json.loads(google_creds_env)
 else:
-    # fallback for local testing
-    with open("credentials.json") as f:
-        google_creds = json.load(f)
+    # Local fallback: credentials.json
+    if os.path.exists("credentials.json"):
+        with open("credentials.json") as f:
+            google_creds = json.load(f)
+    else:
+        raise EnvironmentError(
+            "Missing Google credentials! Set GOOGLE_CREDENTIALS env variable "
+            "or place credentials.json locally."
+        )
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
 client = gspread.authorize(creds)
 
+# Open Google Sheet
 spreadsheet = client.open("CertificateData")
 sheet = spreadsheet.get_worksheet(0)
-
 records = sheet.get_all_records()
 
 if not records:
@@ -74,18 +84,15 @@ def create_certificate(name, event):
     overlay_pdf = f"{OUTPUT_DIR}/overlay.pdf"
     final_pdf = f"{OUTPUT_DIR}/{name}.pdf"
 
+    # Create overlay with name & event
     c = canvas.Canvas(overlay_pdf, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
-
-    # NAME
     c.setFont("Playfair", 30)
     c.drawCentredString(CENTER_X, NAME_Y, name)
-
-    # EVENT
     c.setFont("Playfair", 22)
     c.drawCentredString(CENTER_X, EVENT_Y, event)
-
     c.save()
 
+    # Merge overlay onto template
     base_pdf = PdfReader(CERT_TEMPLATE)
     overlay = PdfReader(overlay_pdf)
     writer = PdfWriter()
