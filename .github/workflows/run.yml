@@ -1,32 +1,36 @@
 name: Certificate Automation
 
+# Trigger every 12 hours + manual trigger
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *"   # runs daily at 9 AM UTC
+    - cron: '0 */12 * * *'  # At minute 0 past every 12th hour
+  workflow_dispatch:         # Allows manual trigger
 
 jobs:
-  run-script:
+  run-certificates:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout your repository
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
+      # 2️⃣ Set up Python
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install gspread oauth2client reportlab PyPDF2
 
-      - name: Run certificate automation
+      # 4️⃣ Run your script with environment variables
+      - name: Run Certificate Script
         env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          GOOGLE_CREDS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-        run: |
-          python main.py
+        run: python main.py
