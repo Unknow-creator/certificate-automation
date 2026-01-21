@@ -15,7 +15,7 @@ SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
 SENDER_EMAIL = os.environ["GMAIL_USER"]
 APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 
-CERT_TEMPLATE = "certificate.pdf"
+CERT_TEMPLATE = "Certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
