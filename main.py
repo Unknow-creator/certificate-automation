@@ -59,8 +59,10 @@ else:
 creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
 client = gspread.authorize(creds)
 
-# Open Google Sheet
-spreadsheet = client.open("Form Responses 1")
+# ================= OPEN SHEET =================
+# Replace this with your actual spreadsheet ID
+SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
+spreadsheet = client.open_by_key(SPREADSHEET_ID)
 sheet = spreadsheet.get_worksheet(0)
 records = sheet.get_all_records()
 
@@ -146,7 +148,7 @@ for row_index, row in enumerate(records, start=2):
     status = row.get("Status", "").strip()
 
     if status.startswith("✅"):
-        continue
+        continue  # already sent
 
     if not name or not event or not email:
         sheet.update_cell(row_index, status_col, "❌ FAILED (Missing data)")
