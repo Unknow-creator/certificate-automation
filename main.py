@@ -9,25 +9,27 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfReader, PdfWriter
 
-# ================= EMAIL CONFIG =================
-SENDER_EMAIL = os.environ["GMAIL_USER"]
-APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
+# ================= CONFIG =================
+SENDER_EMAIL = os.environ.get("GMAIL_USER")
+APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 
-# ================= FILES =================
+if not SENDER_EMAIL or not APP_PASSWORD:
+    raise EnvironmentError(
+        "Missing Gmail credentials! Set GMAIL_USER and GMAIL_APP_PASSWORD environment variables."
+    )
+
 CERT_TEMPLATE = "certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
-
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ================= PAGE & TEXT POSITION =================
-# A4 Landscape = 842 x 595 points
-PAGE_WIDTH = 842
+PAGE_WIDTH = 842   # A4 Landscape
 PAGE_HEIGHT = 595
 CENTER_X = PAGE_WIDTH // 2
 
-NAME_Y = 315      # Upper dotted line
-EVENT_Y = 270     # Lower dotted line
+NAME_Y = 315
+EVENT_Y = 270
 
 # ================= GOOGLE SHEETS AUTH =================
 scope = [
@@ -35,16 +37,20 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-google_creds = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+google_creds_env = os.environ.get("GOOGLE_CREDENTIALS")
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(
-    google_creds, scope
-)
+if google_creds_env:
+    google_creds = json.loads(google_creds_env)
+else:
+    # fallback for local testing
+    with open("credentials.json") as f:
+        google_creds = json.load(f)
 
+creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
 client = gspread.authorize(creds)
 
 spreadsheet = client.open("CertificateData")
-sheet = spreadsheet.get_worksheet(0)  # ✅ first tab always
+sheet = spreadsheet.get_worksheet(0)
 
 records = sheet.get_all_records()
 
