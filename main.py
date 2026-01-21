@@ -1,6 +1,6 @@
-import gspread
-import json
 import os
+import json
+import gspread
 import smtplib
 from email.message import EmailMessage
 from oauth2client.service_account import ServiceAccountCredentials
@@ -10,159 +10,114 @@ from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfReader, PdfWriter
 
 # ================= CONFIG =================
-# Gmail credentials
-SENDER_EMAIL = os.environ.get("GMAIL_USER")
-APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
 
-if not SENDER_EMAIL or not APP_PASSWORD:
-    raise EnvironmentError(
-        "Missing Gmail credentials! Set GMAIL_USER and GMAIL_APP_PASSWORD as environment variables."
-    )
+SENDER_EMAIL = os.environ["GMAIL_USER"]
+APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 
-# Certificate template & font
 CERT_TEMPLATE = "certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
-
-# Output directory
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ================= PAGE & TEXT POSITION =================
-PAGE_WIDTH = 842   # A4 Landscape
-PAGE_HEIGHT = 595
-CENTER_X = PAGE_WIDTH // 2
-NAME_Y = 315
-EVENT_Y = 270
+PAGE_WIDTH, PAGE_HEIGHT = 842, 595
+CENTER_X = PAGE_WIDTH / 2
+NAME_Y = 310
+EVENT_Y = 265
 
-# ================= GOOGLE SHEETS AUTH =================
+# ================= GOOGLE AUTH =================
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Use environment variable first (GitHub Actions)
-google_creds_env = os.environ.get("GOOGLE_CREDENTIALS")
-
-if google_creds_env:
-    google_creds = json.loads(google_creds_env)
-else:
-    # Local fallback: credentials.json
-    if os.path.exists("credentials.json"):
-        with open("credentials.json") as f:
-            google_creds = json.load(f)
-    else:
-        raise EnvironmentError(
-            "Missing Google credentials! Set GOOGLE_CREDENTIALS env variable "
-            "or place credentials.json locally."
-        )
-
+google_creds = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
 client = gspread.authorize(creds)
 
-# ================= OPEN SHEET =================
-# Replace this with your actual spreadsheet ID
-SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
-spreadsheet = client.open_by_key(SPREADSHEET_ID)
-sheet = spreadsheet.get_worksheet(0)
+sheet = client.open_by_key(SPREADSHEET_ID).sheet1
 records = sheet.get_all_records()
-
-if not records:
-    print("✅ Sheet has headers only. Nothing to process.")
-    exit(0)
-
 headers = sheet.row_values(1)
 
-# Ensure Status column exists
 if "Status" not in headers:
     sheet.update_cell(1, len(headers) + 1, "Status")
     headers.append("Status")
 
 status_col = headers.index("Status") + 1
 
-# ================= CERTIFICATE CREATION =================
 pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
 
+# ================= FUNCTIONS =================
 def create_certificate(name, event):
-    overlay_pdf = f"{OUTPUT_DIR}/overlay.pdf"
-    final_pdf = f"{OUTPUT_DIR}/{name}.pdf"
+    overlay = f"{OUTPUT_DIR}/overlay.pdf"
+    output = f"{OUTPUT_DIR}/{name.replace(' ', '_')}.pdf"
 
-    # Create overlay with name & event
-    c = canvas.Canvas(overlay_pdf, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
+    c = canvas.Canvas(overlay, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
     c.setFont("Playfair", 30)
     c.drawCentredString(CENTER_X, NAME_Y, name)
     c.setFont("Playfair", 22)
     c.drawCentredString(CENTER_X, EVENT_Y, event)
     c.save()
 
-    # Merge overlay onto template
-    base_pdf = PdfReader(CERT_TEMPLATE)
-    overlay = PdfReader(overlay_pdf)
+    base = PdfReader(CERT_TEMPLATE)
+    layer = PdfReader(overlay)
     writer = PdfWriter()
 
-    page = base_pdf.pages[0]
-    page.merge_page(overlay.pages[0])
+    page = base.pages[0]
+    page.merge_page(layer.pages[0])
     writer.add_page(page)
 
-    with open(final_pdf, "wb") as f:
+    with open(output, "wb") as f:
         writer.write(f)
 
-    return final_pdf
+    return output
 
-# ================= EMAIL SENDER =================
-def send_email(to_email, name, pdf_path):
+def send_email(to, name, pdf):
     msg = EmailMessage()
-    msg["Subject"] = "Certificate of Participation – ITRONIX"
-    msg["From"] = f"ITRONIX Certificates <{SENDER_EMAIL}>"
-    msg["To"] = to_email
+    msg["Subject"] = "Certificate of Participation – ITRONIX 2026"
+    msg["From"] = f"ITRONIX <{SENDER_EMAIL}>"
+    msg["To"] = to
 
     msg.set_content(f"""
 Dear {name},
 
-Greetings from Guru Nanak College.
+Congratulations 🎉
 
 Please find attached your Certificate of Participation
-for the event conducted during ITRONIX IT Fest.
+for the ITRONIX 2026 event.
 
 Regards,
 Department of Information Technology
 Guru Nanak College
 """)
 
-    with open(pdf_path, "rb") as f:
-        msg.add_attachment(
-            f.read(),
-            maintype="application",
-            subtype="pdf",
-            filename=os.path.basename(pdf_path)
-        )
+    with open(pdf, "rb") as f:
+        msg.add_attachment(f.read(), maintype="application", subtype="pdf", filename=os.path.basename(pdf))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(SENDER_EMAIL, APP_PASSWORD)
-        server.send_message(msg)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(SENDER_EMAIL, APP_PASSWORD)
+        s.send_message(msg)
 
-# ================= MAIN EXECUTION =================
-for row_index, row in enumerate(records, start=2):
+# ================= MAIN =================
+for i, row in enumerate(records, start=2):
     name = row.get("Full Name")
-    event = row.get("EVENT")
     email = row.get("Email Address")
-    status = row.get("Status", "").strip()
+    event = row.get("EVENT")
+    status = row.get("Status", "")
 
-    if status.startswith("✅"):
-        continue  # already sent
+    if status == "SENT":
+        continue
 
-    if not name or not event or not email:
-        sheet.update_cell(row_index, status_col, "❌ FAILED (Missing data)")
+    if not name or not email or not event:
+        sheet.update_cell(i, status_col, "FAILED")
         continue
 
     try:
-        sheet.update_cell(row_index, status_col, "⏳ PENDING")
-        pdf_path = create_certificate(name, event)
-        send_email(email, name, pdf_path)
-        sheet.update_cell(row_index, status_col, "✅ SENT")
-        print(f"✔ Certificate sent to {email}")
+        pdf = create_certificate(name, event)
+        send_email(email, name, pdf)
+        sheet.update_cell(i, status_col, "SENT")
+        print(f"Sent to {email}")
 
     except Exception as e:
-        sheet.update_cell(row_index, status_col, "❌ FAILED")
-        print(f"❌ Failed for {email}: {e}")
-
-print("🎉 Certificate automation completed successfully")
+        sheet.update_cell(i, status_col, "FAILED")
+        print(e)
