@@ -17,7 +17,7 @@ if not SENDER_EMAIL or not APP_PASSWORD:
     raise EnvironmentError("Missing Gmail credentials")
 
 # ================= FILE CONFIG =================
-CERT_TEMPLATE = "certificate.pdf"
+CERT_TEMPLATE = "Certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
