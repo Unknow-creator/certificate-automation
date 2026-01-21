@@ -60,7 +60,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
 client = gspread.authorize(creds)
 
 # Open Google Sheet
-spreadsheet = client.open("CertificateData")
+spreadsheet = client.open("Form Responses 1")
 sheet = spreadsheet.get_worksheet(0)
 records = sheet.get_all_records()
 
