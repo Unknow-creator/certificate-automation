@@ -9,16 +9,26 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfReader, PdfWriter
 
-# ================= CONFIG =================
+# ======================================================
+# EMAIL CONFIG
+# ======================================================
+SENDER_EMAIL = os.environ.get("GMAIL_USER")
+APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+
+if not SENDER_EMAIL or not APP_PASSWORD:
+    raise EnvironmentError("❌ Gmail credentials missing")
+
+# ======================================================
+# FILE CONFIG
+# ======================================================
 CERT_TEMPLATE = "Certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-SENDER_EMAIL = os.environ["GMAIL_USER"]
-APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
-
-# ================= GOOGLE SHEET =================
+# ======================================================
+# GOOGLE SHEETS AUTH
+# ======================================================
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
@@ -28,63 +38,59 @@ google_creds = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key("1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM").sheet1
+SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
+sheet = client.open_by_key(SPREADSHEET_ID).sheet1
 records = sheet.get_all_records()
 headers = sheet.row_values(1)
 
+# Status column
 if "Status" not in headers:
     sheet.update_cell(1, len(headers) + 1, "Status")
-headers = sheet.row_values(1)
+    headers.append("Status")
+
 STATUS_COL = headers.index("Status") + 1
 
-# ================= PDF SETUP =================
-pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
+# ======================================================
+# LOAD PDF SIZE (REAL SIZE)
+# ======================================================
 base_pdf = PdfReader(CERT_TEMPLATE)
 base_page = base_pdf.pages[0]
+PAGE_WIDTH = float(base_page.mediabox.width)
+PAGE_HEIGHT = float(base_page.mediabox.height)
 
-PAGE_W = float(base_page.mediabox.width)
-PAGE_H = float(base_page.mediabox.height)
+# ======================================================
+# FONT REGISTER
+# ======================================================
+pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
 
-# ================= EXACT BOX POSITIONS (IN POINTS) =================
-def inch(v): return v * 72
+# ======================================================
+# 🎯 EXACT DASH POSITIONS (MEASURED FROM LIBREOFFICE)
+# ======================================================
+# LibreOffice → inches → points (1 inch = 72 points)
+# Y is inverted because PDF origin = bottom-left
 
-NAME_BOX = {
-    "x": inch(3.87),
-    "y": inch(3.87),
-    "w": inch(2.63),
-    "h": inch(0.38),
-    "size": 32
-}
+NAME_X = 260                              # 3.62 inch
+NAME_Y = PAGE_HEIGHT - (4.23 * 72) + 8   # small lift above dash
 
-EVENT_BOX = {
-    "x": inch(0.50),
-    "y": inch(4.50),
-    "w": inch(2.38),
-    "h": inch(0.37),
-    "size": 22
-}
+EVENT_X = 56                              # 0.78 inch
+EVENT_Y = PAGE_HEIGHT - (4.85 * 72) + 6
 
-# ================= DRAW TEXT PERFECTLY CENTERED =================
-def draw_centered_text(c, text, box, font="Playfair"):
-    c.setFont(font, box["size"])
-
-    text_width = pdfmetrics.stringWidth(text, font, box["size"])
-    x = box["x"] + (box["w"] - text_width) / 2
-
-    # baseline correction
-    y = box["y"] + (box["h"] / 2) - (box["size"] * 0.35)
-
-    c.drawString(x, y, text)
-
-# ================= CERTIFICATE GENERATOR =================
+# ======================================================
+# CERTIFICATE CREATOR
+# ======================================================
 def create_certificate(name, event):
     overlay_path = f"{OUTPUT_DIR}/overlay.pdf"
     final_path = f"{OUTPUT_DIR}/{name.replace(' ', '_')}.pdf"
 
-    c = canvas.Canvas(overlay_path, pagesize=(PAGE_W, PAGE_H))
+    c = canvas.Canvas(overlay_path, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
 
-    draw_centered_text(c, name, NAME_BOX)
-    draw_centered_text(c, event, EVENT_BOX)
+    # NAME — LEFT ALIGNED (VERY IMPORTANT)
+    c.setFont("Playfair", 26)
+    c.drawString(NAME_X, NAME_Y, name)
+
+    # EVENT — LEFT ALIGNED
+    c.setFont("Playfair", 20)
+    c.drawString(EVENT_X, EVENT_Y, event)
 
     c.save()
 
@@ -100,7 +106,9 @@ def create_certificate(name, event):
 
     return final_path
 
-# ================= EMAIL =================
+# ======================================================
+# EMAIL SENDER
+# ======================================================
 def send_email(to_email, name, pdf_path):
     msg = EmailMessage()
     msg["Subject"] = "Certificate of Participation – ITRONIX"
@@ -110,8 +118,10 @@ def send_email(to_email, name, pdf_path):
     msg.set_content(f"""
 Dear {name},
 
+Greetings from Guru Nanak College.
+
 Please find attached your Certificate of Participation
-for ITRONIX IT Fest.
+for the event conducted during ITRONIX IT Fest.
 
 Regards,
 Department of Information Technology
@@ -130,26 +140,30 @@ Guru Nanak College
         server.login(SENDER_EMAIL, APP_PASSWORD)
         server.send_message(msg)
 
-# ================= MAIN =================
-for i, row in enumerate(records, start=2):
-    if row.get("Status", "").startswith("✅"):
-        continue
-
+# ======================================================
+# MAIN EXECUTION
+# ======================================================
+for row_index, row in enumerate(records, start=2):
     name = row.get("Full Name")
     event = row.get("EVENT")
     email = row.get("Email Address")
+    status = row.get("Status", "")
+
+    if status.startswith("✅"):
+        continue
 
     if not name or not event or not email:
-        sheet.update_cell(i, STATUS_COL, "❌ Missing data")
+        sheet.update_cell(row_index, STATUS_COL, "❌ FAILED (Missing data)")
         continue
 
     try:
-        sheet.update_cell(i, STATUS_COL, "⏳ Processing")
-        pdf = create_certificate(name, event)
-        send_email(email, name, pdf)
-        sheet.update_cell(i, STATUS_COL, "✅ Sent")
+        sheet.update_cell(row_index, STATUS_COL, "⏳ PENDING")
+        pdf_path = create_certificate(name, event)
+        send_email(email, name, pdf_path)
+        sheet.update_cell(row_index, STATUS_COL, "✅ SENT")
+        print(f"✔ Sent to {email}")
     except Exception as e:
-        sheet.update_cell(i, STATUS_COL, "❌ Failed")
-        print(e)
+        sheet.update_cell(row_index, STATUS_COL, "❌ FAILED")
+        print(f"❌ Error for {email}: {e}")
 
-print("🎉 All certificates generated & emailed")
+print("🎉 ALL CERTIFICATES GENERATED & SENT")
