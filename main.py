@@ -181,4 +181,4 @@ for row_index, row in enumerate(records, start=2):
         sheet.update_cell(row_index, STATUS_COL, "❌ FAILED")
         print(f"❌ Error for {email}: {e}")
 
-print("🎉 ALL CERTIFICATES GENERATED & SENT"
+print("🎉 ALL CERTIFICATES GENERATED & SENT")
