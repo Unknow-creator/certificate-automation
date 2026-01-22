@@ -3,34 +3,27 @@ import json
 import os
 import smtplib
 from email.message import EmailMessage
-
 from oauth2client.service_account import ServiceAccountCredentials
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfReader, PdfWriter
+from copy import deepcopy
 
-# ======================================================
-# EMAIL CONFIG
-# ======================================================
+# ================= EMAIL CONFIG =================
 SENDER_EMAIL = os.environ.get("GMAIL_USER")
 APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 
 if not SENDER_EMAIL or not APP_PASSWORD:
-    raise EnvironmentError("❌ Gmail credentials missing")
+    raise EnvironmentError("Missing Gmail credentials")
 
-# ======================================================
-# FILE CONFIG
-# ======================================================
+# ================= FILE CONFIG =================
 CERT_TEMPLATE = "Certificate.pdf"
 FONT_PATH = "PlayfairDisplay-Regular.ttf"
 OUTPUT_DIR = "output"
-
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ======================================================
-# GOOGLE SHEET AUTH
-# ======================================================
+# ================= GOOGLE SHEET AUTH =================
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
@@ -42,7 +35,6 @@ client = gspread.authorize(creds)
 
 SPREADSHEET_ID = "1IIMYLmvvFIXcMChASZEBxmBovdCv-CuKK8bgvZsNJxM"
 sheet = client.open_by_key(SPREADSHEET_ID).sheet1
-
 records = sheet.get_all_records()
 headers = sheet.row_values(1)
 
@@ -52,97 +44,71 @@ if "Status" not in headers:
 
 STATUS_COL = headers.index("Status") + 1
 
-# ======================================================
-# LOAD TEMPLATE SIZE
-# ======================================================
+# ================= LOAD TEMPLATE SIZE =================
 base_pdf = PdfReader(CERT_TEMPLATE)
-base_page = base_pdf.pages[0]
+PAGE_WIDTH = float(base_pdf.pages[0].mediabox.width)
+PAGE_HEIGHT = float(base_pdf.pages[0].mediabox.height)
+CENTER_X = PAGE_WIDTH / 2
 
-PAGE_WIDTH = float(base_page.mediabox.width)
-PAGE_HEIGHT = float(base_page.mediabox.height)
-
-# ======================================================
-# REGISTER FONT
-# ======================================================
+# ================= FONT =================
 pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
 
-# ======================================================
-# DASH MEASUREMENTS (FROM YOUR SCREENSHOT)
-# ======================================================
-INCH = 72
+# ================= EXACT DASH POSITIONS =================
+# These values MATCH your Inkscape dashed lines
+NAME_BOX_X = PAGE_WIDTH * 0.32
+NAME_BOX_Y = PAGE_HEIGHT * 0.46
+NAME_BOX_W = PAGE_WIDTH * 0.36
 
-# NAME DASH
-NAME_BOX_X = 3.62 * INCH
-NAME_BOX_Y = 4.23 * INCH
-NAME_BOX_W = 3.26 * INCH
+EVENT_BOX_X = PAGE_WIDTH * 0.17
+EVENT_BOX_Y = PAGE_HEIGHT * 0.395
+EVENT_BOX_W = PAGE_WIDTH * 0.26
 
-# EVENT DASH
-EVENT_BOX_X = 0.78 * INCH
-EVENT_BOX_Y = 4.85 * INCH
-EVENT_BOX_W = 2.29 * INCH
+# ================= TEXT DRAWING =================
+def draw_centered_in_box(c, text, font, max_size, x, y, box_width):
+    size = max_size
+    while size > 12:
+        text_width = pdfmetrics.stringWidth(text, font, size)
+        if text_width <= box_width:
+            break
+        size -= 1
 
-# ======================================================
-# PERFECT CENTER FUNCTION
-# ======================================================
-def draw_centered_in_box(c, text, font, size, box_x, box_y, box_w):
     c.setFont(font, size)
-    text_width = pdfmetrics.stringWidth(text, font, size)
+    c.drawCentredString(x + box_width / 2, y, text)
 
-    text_x = box_x + (box_w - text_width) / 2
-
-    # IMPORTANT: PDF origin is bottom-left
-    text_y = PAGE_HEIGHT - box_y + 8  # slight lift fixes "going down"
-
-    c.drawString(text_x, text_y, text)
-
-# ======================================================
-# CERTIFICATE CREATOR
-# ======================================================
+# ================= CERTIFICATE CREATOR =================
 def create_certificate(name, event):
     overlay_path = f"{OUTPUT_DIR}/overlay.pdf"
     final_path = f"{OUTPUT_DIR}/{name.replace(' ', '_')}.pdf"
 
     c = canvas.Canvas(overlay_path, pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
 
-    # NAME
     draw_centered_in_box(
-        c,
-        name,
-        "Playfair",
-        26,
-        NAME_BOX_X,
-        NAME_BOX_Y,
-        NAME_BOX_W
+        c, name, "Playfair", 26,
+        NAME_BOX_X, NAME_BOX_Y, NAME_BOX_W
     )
 
-    # EVENT
     draw_centered_in_box(
-        c,
-        event,
-        "Playfair",
-        20,
-        EVENT_BOX_X,
-        EVENT_BOX_Y,
-        EVENT_BOX_W
+        c, event, "Playfair", 20,
+        EVENT_BOX_X, EVENT_BOX_Y, EVENT_BOX_W
     )
 
     c.save()
 
     overlay = PdfReader(overlay_path)
-    writer = PdfWriter()
 
-    page = base_page
-    page.merge_page(overlay.pages[0])
-    writer.add_page(page)
+    # 🔥 IMPORTANT FIX — CLONE PAGE
+    fresh_page = deepcopy(base_pdf.pages[0])
+    fresh_page.merge_page(overlay.pages[0])
+
+    writer = PdfWriter()
+    writer.add_page(fresh_page)
 
     with open(final_path, "wb") as f:
         writer.write(f)
 
     return final_path
 
-# ======================================================
-# EMAIL SENDER
-# ======================================================
+# ================= EMAIL =================
 def send_email(to_email, name, pdf_path):
     msg = EmailMessage()
     msg["Subject"] = "Certificate of Participation – ITRONIX"
@@ -174,9 +140,7 @@ Guru Nanak College
         server.login(SENDER_EMAIL, APP_PASSWORD)
         server.send_message(msg)
 
-# ======================================================
-# MAIN LOOP
-# ======================================================
+# ================= MAIN LOOP =================
 for i, row in enumerate(records, start=2):
     name = row.get("Full Name")
     event = row.get("EVENT")
@@ -192,11 +156,11 @@ for i, row in enumerate(records, start=2):
 
     try:
         sheet.update_cell(i, STATUS_COL, "⏳ PENDING")
-        pdf_path = create_certificate(name, event)
-        send_email(email, name, pdf_path)
+        pdf = create_certificate(name, event)
+        send_email(email, name, pdf)
         sheet.update_cell(i, STATUS_COL, "✅ SENT")
     except Exception as e:
         sheet.update_cell(i, STATUS_COL, "❌ FAILED")
         print(e)
 
-print("🎉 All certificates generated & sent successfully")
+print("🎉 All certificates generated successfully")
