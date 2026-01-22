@@ -68,7 +68,7 @@ pdfmetrics.registerFont(TTFont("Playfair", FONT_PATH))
 # NAME DASH
 NAME_DASH_X = 260
 NAME_DASH_WIDTH = 235
-NAME_Y = PAGE_HEIGHT - (4.23 * 72) + 6
+NAME_Y = PAGE_HEIGHT - (4.23 * 72) + 9
 
 # EVENT DASH
 EVENT_DASH_X = 56
