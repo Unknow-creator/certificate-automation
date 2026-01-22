@@ -73,7 +73,7 @@ NAME_Y = PAGE_HEIGHT - (4.23 * 72) + 9
 # EVENT DASH
 EVENT_DASH_X = 56
 EVENT_DASH_WIDTH = 165
-EVENT_Y = PAGE_HEIGHT - (4.85 * 72) + 14
+EVENT_Y = PAGE_HEIGHT - (4.85 * 72) + 12
 
 # ======================================================
 # CENTER TEXT ON DASH (CORE FIX)
